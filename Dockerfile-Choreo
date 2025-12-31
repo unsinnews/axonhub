@@ -1,0 +1,3 @@
+FROM looplj/axonhub:latest
+
+USER 10014
