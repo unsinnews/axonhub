@@ -1,3 +1,5 @@
 FROM looplj/axonhub:latest
-
+RUN apk update && \
+    apk upgrade zlib && \
+    rm -rf /var/cache/apk/*
 USER 10014
