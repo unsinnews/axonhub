@@ -1,4 +1,4 @@
-FROM looplj/axonhub:latest
+FROM looplj/axonhub:v0.9.23
 RUN apk update && \
     apk upgrade zlib && \
     rm -rf /var/cache/apk/*
