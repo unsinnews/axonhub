@@ -1,5 +1,58 @@
-FROM looplj/axonhub:latest
+FROM cloudflare/cloudflared:latest AS cloudflared
+
+FROM looplj/axonhub:v1.0.0-beta12
+
+USER root
+
 RUN apk update && \
     apk upgrade zlib && \
+    apk add --no-cache tini && \
     rm -rf /var/cache/apk/*
+
+# 从 Cloudflare 官方镜像复制 cloudflared
+COPY --from=cloudflared /usr/local/bin/cloudflared /usr/local/bin/cloudflared
+
+# 创建同时启动 AxonHub 和 Cloudflare Tunnel 的脚本
+RUN cat > /usr/local/bin/start.sh <<'EOF'
+#!/bin/sh
+set -u
+
+if [ -z "${TUNNEL_TOKEN:-}" ]; then
+    echo "错误：未设置 TUNNEL_TOKEN 环境变量" >&2
+    exit 1
+fi
+
+echo "启动 AxonHub..."
+/app/axonhub &
+APP_PID=$!
+
+echo "启动 Cloudflare Tunnel..."
+cloudflared tunnel --no-autoupdate run &
+TUNNEL_PID=$!
+
+cleanup() {
+    echo "正在停止服务..."
+    kill -TERM "$APP_PID" "$TUNNEL_PID" 2>/dev/null || true
+    wait "$APP_PID" 2>/dev/null || true
+    wait "$TUNNEL_PID" 2>/dev/null || true
+}
+
+trap cleanup INT TERM EXIT
+
+# 任意进程退出，就让整个容器退出并由平台重启
+while kill -0 "$APP_PID" 2>/dev/null && \
+      kill -0 "$TUNNEL_PID" 2>/dev/null; do
+    sleep 2
+done
+
+echo "AxonHub 或 Cloudflare Tunnel 已退出" >&2
+exit 1
+EOF
+
+RUN chmod 755 /usr/local/bin/start.sh
+
 USER 10014
+
+EXPOSE 8090
+
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/start.sh"]
